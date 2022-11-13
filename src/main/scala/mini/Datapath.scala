@@ -37,6 +37,7 @@ class Datapath(val conf: CoreConfig) extends Module {
   val alu = Module(conf.makeAlu(conf.xlen))
   val immGen = Module(conf.makeImmGen(conf.xlen))
   val brCond = Module(conf.makeBrCond(conf.xlen))
+  val brPredictor = Module(conf.makeBrPredictor(conf.xlen))
 
   import Control._
 
@@ -47,7 +48,7 @@ class Datapath(val conf: CoreConfig) extends Module {
   val fe_reg = RegInit(
     (new FetchExecutePipelineRegister(conf.xlen)).Lit(
       _.inst -> Instructions.NOP,
-      _.pc -> 0.U
+      _.pc -> 0.U,
     )
   )
 
@@ -77,21 +78,58 @@ class Datapath(val conf: CoreConfig) extends Module {
   val started = RegNext(reset.asBool)
   val stall = !io.icache.resp.valid || !io.dcache.resp.valid
   val pc = RegInit(Const.PC_START.U(conf.xlen.W) - 4.U(conf.xlen.W))
+
+  /**
+    * Updating Branching
+    *   - The old code inserts a NOP into the pipeline when the branch is taken; this assumes that the branch is *never* taken.
+    *   - I am updating this code to assume that the branch is *always* taken.
+    */
   // Next Program Counter
+//  val next_pc = MuxCase(
+//    pc + 4.U,
+//    IndexedSeq(
+//      stall -> pc,
+//      csr.io.expt -> csr.io.evec,
+//      (io.ctrl.pc_sel === PC_EPC) -> csr.io.epc,
+//      ((io.ctrl.pc_sel === PC_ALU) || (brCond.io.taken)) -> (alu.io.sum >> 1.U << 1.U),
+//      (io.ctrl.pc_sel === PC_0) -> pc
+//    )
+//  )
   val next_pc = MuxCase(
     pc + 4.U,
     IndexedSeq(
-      stall -> pc,
-      csr.io.expt -> csr.io.evec,
+      stall                       -> pc,
+      csr.io.expt                 -> csr.io.evec,
       (io.ctrl.pc_sel === PC_EPC) -> csr.io.epc,
-      ((io.ctrl.pc_sel === PC_ALU) || (brCond.io.taken)) -> (alu.io.sum >> 1.U << 1.U),
-      (io.ctrl.pc_sel === PC_0) -> pc
+      (io.ctrl.pc_sel === PC_ALU) -> (alu.io.sum >> 1.U << 1.U),
+      brCond.io.taken             -> (alu.io.sum >> 1.U << 1.U),
+      (io.ctrl.pc_sel === PC_0)   -> pc
     )
   )
+
+  /**
+    * Wire up the branch predictor
+    */
+  brPredictor.io.fe_pc := fe_reg.pc
+  brPredictor.io.br_taken := brCond.io.taken
+  brPredictor.io.br_address := (alu.io.sum >> 1.U << 1.U)
+  brPredictor.io.next_pc := next_pc
+  brPredictor.io.current_pc := pc
+
+  // How the next instruction is chosen. If there is any interruption to the normal control flow, a NOP is inserted
+  // into the pipeline, causing a bubble. This originally included if a branch is taken.
   val inst =
-    Mux(started || io.ctrl.inst_kill || brCond.io.taken || csr.io.expt, Instructions.NOP, io.icache.resp.bits.data)
+    MuxCase(
+      io.icache.resp.bits.data,
+      IndexedSeq(
+        (started || io.ctrl.inst_kill || csr.io.expt) -> Instructions.NOP,
+//        brCond.io.taken -> Instructions.NOP,
+        !brPredictor.io.hit -> Instructions.NOP
+      )
+    )
+
   pc := next_pc
-  io.icache.req.bits.addr := next_pc
+  io.icache.req.bits.addr := brPredictor.io.predicted_address  // next_pc
   io.icache.req.bits.data := 0.U
   io.icache.req.bits.mask := 0.U
   io.icache.req.valid := !stall

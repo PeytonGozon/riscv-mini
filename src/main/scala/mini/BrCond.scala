@@ -51,4 +51,10 @@ class BrCondArea(val xlen: Int) extends BrCond {
       ((io.br_type === BR_GE) && ge) ||
       ((io.br_type === BR_LTU) && ltu) ||
       ((io.br_type === BR_GEU) && geu)
+
+  val brCount = RegInit(0.U(xlen.W))
+
+  when(io.taken) {
+    brCount := brCount + 1.U
+  }
 }
