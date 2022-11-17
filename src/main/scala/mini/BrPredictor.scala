@@ -32,11 +32,67 @@ trait BrPredictor extends Module {
 class BrPredictorStaticAlwaysTake(val xlen: Int) extends BrPredictor {
   val io: BrPredictorIO = IO(new BrPredictorIO(xlen))
 
+  // make variables for whether we just predicted or not.
+  // tbh, simplify all the weird logic steps.
+
   val prediction_pc: UInt = RegInit(0.U(xlen.W))   // current input PC
   val prediction_addr: UInt = RegInit(0.U(xlen.W)) // current output PC
+  val just_predicted: Bool = RegNext(prediction_pc === io.fe_pc) // whether we just predicted accurately or not.
 
-  io.predicted_address := io.next_pc
-  io.hit := !io.br_taken
+  /** This makes BrPredictor act like an identity gate
+    */
+//  io.predicted_address := io.next_pc
+//  io.hit := !io.br_takenA
+
+  /** Update internal state whenever we didn't predict OR we mispredicted
+    * We know when we mispredicted by: 1. branch was taken; 2. last stored branch inst PC ≠ latched branch inst PC
+    *
+    * Note: We have to wait for io.br_taken to be true to know that there was an actual branch taken.
+    */
+  when(io.br_taken && (prediction_pc =/= io.fe_pc || prediction_addr =/= io.br_address)) {
+    prediction_pc := io.fe_pc
+    prediction_addr := io.br_address
+  }
+
+  /** Start predicting
+    * 1. If the current PC is the prediction PC --> give the prediction address
+    * 2. If we don't recognize the current PC   --> give the next PC.
+    */
+  io.predicted_address := MuxCase(
+    io.next_pc,
+    IndexedSeq(
+      (io.current_pc === prediction_pc) -> prediction_addr
+    )
+  )
+
+  /** Did we do a good job predicting? If not: insert that NOP
+    *
+    *   When doesn't the branch predictor act?
+    *     - Whenever there was no branch instruction
+    *
+    *   How do we know when there wasn't a branch instruction?
+    *     -
+    */
+
+  // If we didn't take a branch, call that a hit (good -- no cause for concern)
+  // If we did take the branch, ensure that our predicted address was equal to the branching address.
+  io.hit := !io.br_taken || (prediction_addr === io.br_address)
+
+  // If we took the branch, and the branch was not currently in the predictor
+  // Update the predictor
+//  when(io.br_taken && prediction_pc =/= io.fe_pc) {
+//    prediction_pc := io.fe_pc
+//    prediction_addr := io.next_pc
+//  }
+//
+//  io.predicted_address := MuxCase(
+//    io.next_pc,
+//    IndexedSeq(
+//      (io.current_pc === prediction_pc) -> prediction_addr
+//    )
+//  )
+//
+//  io.hit := !just_predicted // !io.br_taken || (prediction_pc === io.br_address)
 
 
   /**

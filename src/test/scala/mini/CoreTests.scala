@@ -69,11 +69,11 @@ class CoreSimpleTests extends AnyFlatSpec with ChiselScalatestTester {
   }
 }
 
-abstract class CoreTests(cfg: TestConfig, useVerilator: Boolean = false)
+abstract class CoreTests(cfg: TestConfig, useVerilator: Boolean = true)
     extends AnyFlatSpec
     with ChiselScalatestTester {
   behavior.of("Core")
-  val opts = if (useVerilator) Seq(VerilatorBackendAnnotation) else Seq()
+  val opts = if (useVerilator) Seq(VerilatorBackendAnnotation, WriteVcdAnnotation) else Seq()
   cfg.tests.foreach { name =>
     it should s"execute $name" taggedAs IntegrationTest in {
       test(new CoreTester(new Core(DefaultCoreConfig()), name)).withAnnotations(opts).runUntilStop(cfg.maxcycles)
