@@ -79,11 +79,6 @@ class Datapath(val conf: CoreConfig) extends Module {
   val stall = !io.icache.resp.valid || !io.dcache.resp.valid
   val pc = RegInit(Const.PC_START.U(conf.xlen.W) - 4.U(conf.xlen.W))
 
-  /**
-    * Updating Branching
-    *   - The old code inserts a NOP into the pipeline when the branch is taken; this assumes that the branch is *never* taken.
-    *   - I am updating this code to assume that the branch is *always* taken.
-    */
   // Next Program Counter
 //  val next_pc = MuxCase(
 //    pc + 4.U,
@@ -102,34 +97,30 @@ class Datapath(val conf: CoreConfig) extends Module {
       csr.io.expt                 -> csr.io.evec,
       (io.ctrl.pc_sel === PC_EPC) -> csr.io.epc,
       (io.ctrl.pc_sel === PC_ALU) -> (alu.io.sum >> 1.U << 1.U),
+//      !brPredictor.io.pred_incorrect -> ((alu.io.sum >> 1.U << 1.U).asUInt + 4.U),
       brCond.io.taken             -> (alu.io.sum >> 1.U << 1.U),
       (io.ctrl.pc_sel === PC_0)   -> pc
     )
   )
 
-  /**
-    * Wire up the branch predictor
-    */
-  brPredictor.io.fe_pc := fe_reg.pc
-  brPredictor.io.br_taken := brCond.io.taken
-  brPredictor.io.br_address := (alu.io.sum >> 1.U << 1.U)
-  brPredictor.io.next_pc := next_pc
-  brPredictor.io.current_pc := pc
-
-  // How the next instruction is chosen. If there is any interruption to the normal control flow, a NOP is inserted
-  // into the pipeline, causing a bubble. This originally included if a branch is taken.
+  // When adding in the branch predictor, we remove the informal branch predictor that was previously in place
+  // Originally, `inst` was calculated by assuming that if a branch was taken, a NOP should be bubbled through.
+  // However, the only time that an NOP should be bubbled through is if the branch predictor incorrectly predicts.
   val inst =
     MuxCase(
       io.icache.resp.bits.data,
       IndexedSeq(
         (started || io.ctrl.inst_kill || csr.io.expt) -> Instructions.NOP,
-//        brCond.io.taken -> Instructions.NOP,
-        !brPredictor.io.hit -> Instructions.NOP
+        brPredictor.io.pred_incorrect -> Instructions.NOP  // incorrect prediction = NOP too!
       )
     )
 
   pc := next_pc
-  io.icache.req.bits.addr := brPredictor.io.predicted_address  // next_pc
+
+  // Add in the branch predictor mux ahead of the I$!
+  io.icache.req.bits.addr := Mux(brPredictor.io.pred_made, brPredictor.io.pred_addr, next_pc)
+
+  // These aren't used by the I$
   io.icache.req.bits.data := 0.U
   io.icache.req.bits.mask := 0.U
   io.icache.req.valid := !stall
@@ -172,6 +163,12 @@ class Datapath(val conf: CoreConfig) extends Module {
   brCond.io.rs1 := rs1
   brCond.io.rs2 := rs2
   brCond.io.br_type := io.ctrl.br_type
+
+  // Branch predictor calc
+  brPredictor.io.br_type := io.ctrl.br_type
+  brPredictor.io.curr_pc := fe_reg.pc
+  brPredictor.io.br_addr := (alu.io.sum >> 1.U << 1.U)
+  brPredictor.io.br_taken := brCond.io.taken
 
   // D$ access
   val daddr = Mux(stall, ew_reg.alu, alu.io.sum) >> 2.U << 2.U
