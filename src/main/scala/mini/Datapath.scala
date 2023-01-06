@@ -96,8 +96,9 @@ class Datapath(val conf: CoreConfig) extends Module {
       stall                       -> pc,
       csr.io.expt                 -> csr.io.evec,
       (io.ctrl.pc_sel === PC_EPC) -> csr.io.epc,
+      (brPredictor.io.pred_made && brPredictor.io.pred_incorrect) -> (brPredictor.io.cached_pc + 4.U),  // pred_addr + 4.U
+      (brPredictor.io.pred_made && !brPredictor.io.pred_incorrect) -> brPredictor.io.pred_addr,
       (io.ctrl.pc_sel === PC_ALU) -> (alu.io.sum >> 1.U << 1.U),
-//      !brPredictor.io.pred_incorrect -> ((alu.io.sum >> 1.U << 1.U).asUInt + 4.U),
       brCond.io.taken             -> (alu.io.sum >> 1.U << 1.U),
       (io.ctrl.pc_sel === PC_0)   -> pc
     )
@@ -111,14 +112,14 @@ class Datapath(val conf: CoreConfig) extends Module {
       io.icache.resp.bits.data,
       IndexedSeq(
         (started || io.ctrl.inst_kill || csr.io.expt) -> Instructions.NOP,
-        brPredictor.io.pred_incorrect -> Instructions.NOP  // incorrect prediction = NOP too!
+        (brPredictor.io.pred_incorrect /*&& brPredictor.io.pred_addr =/= 0.U*/) -> Instructions.NOP  // incorrect prediction = NOP too! TODO: make it not pred_addr =/= 0.U
       )
     )
 
   pc := next_pc
 
   // Add in the branch predictor mux ahead of the I$!
-  io.icache.req.bits.addr := Mux(brPredictor.io.pred_made, brPredictor.io.pred_addr, next_pc)
+  io.icache.req.bits.addr := next_pc
 
   // These aren't used by the I$
   io.icache.req.bits.data := 0.U

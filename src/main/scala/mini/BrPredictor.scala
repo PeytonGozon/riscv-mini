@@ -26,6 +26,9 @@ import mini.Control._
 
    // System 2 Output(s)
    var pred_incorrect: Bool = Output(Bool())  // Whether the last prediction was correct or not (alt: whether to bubble a NOP through the pipeline or not).
+
+   var cached_pc: UInt = Output(UInt(xlen.W))
+
  }
 
 trait BrPredictor2 extends Module {
@@ -45,31 +48,40 @@ class BrPredictorStatic(val xlen: Int) extends BrPredictor2 {
   /**
     * The Branch Predictor Table (stateful data)
     */
-  val cached_pc: UInt = RegInit(0.U(xlen.W))  // The cached branch PC
-  val cached_addr: UInt = RegInit(0.U(xlen.W))  // The address the cached branch goes to.
+
+  val cached_pc_write: UInt = RegInit(0.U(xlen.W))  // The cached branch PC
+  val cached_pc_read: UInt = RegNext(cached_pc_write)
+
+  val cached_addr_write: UInt = RegInit(0.U(xlen.W))  // The address the cached branch goes to.
+  val cached_addr_read: UInt = RegNext(cached_addr_write)
+
+  io.cached_pc := cached_pc_read
+
+
 
   when (is_br_inst) {
 
-    when (io.curr_pc === cached_pc) {  // We have a branch instruction, and the PC is in the table.
+    when (io.curr_pc === cached_pc_read) {
+      // We have a branch instruction, and the PC is in the table.
 
       // Therefore, we make a prediction.
-      io.pred_addr := cached_addr
+      // io.pred_addr := cached_addr
       io.pred_made := true.B
 
       when (io.br_taken) {
         // We predicted that the branch was taken, and it was! We now only must ensure that the address was correct.
 
-        io.pred_incorrect := io.br_addr =/= cached_addr
+        io.pred_incorrect := io.br_addr =/= cached_addr_read
 
-        when (io.br_addr === cached_addr) {
+        when (io.br_addr === cached_addr_read) {
           // Do nothing! Successful prediction!
         } otherwise {
           // Prediction was incorrect -- and the cached address needs to be updated!
-          cached_addr := io.br_addr
+          cached_addr_write := io.br_addr
         }
 
       } otherwise {
-        // We predicted that the branch was taken, but it was not. Mispredict!
+        // We predicted that the branch was taken, but it was not. Miss-predict!
         io.pred_incorrect := true.B
       }
 
@@ -77,12 +89,11 @@ class BrPredictorStatic(val xlen: Int) extends BrPredictor2 {
       // Consequently, there was no prediction (and the prediction was not incorrect).
       io.pred_made := false.B
       io.pred_incorrect := false.B
-      io.pred_addr := 0.U(xlen.W)
 
       when (io.br_taken) {
         // If the branch was ultimately taken, then invoke the Replacement Policy.
-        cached_pc := io.curr_pc
-        cached_addr := io.br_addr
+        cached_pc_write := io.curr_pc
+        cached_addr_write := io.br_addr
       } otherwise {
         // Do nothing
       }
@@ -91,73 +102,10 @@ class BrPredictorStatic(val xlen: Int) extends BrPredictor2 {
   } otherwise {
     io.pred_made := false.B
     io.pred_incorrect := false.B
-    io.pred_addr := 0.U(xlen.W)
   }
 
-
-//
-//  when (is_br_inst) {
-//
-//    /**
-//      * System 1 -- "Making the prediction"
-//      *  - If we have a branch instruction & the current PC is in the table,
-//      *      then make the prediction! (set the prediction address & prediction flag)
-//      *  - If the current PC is not in the table, ensure the prediction flag is false.
-//      */
-//    when (io.curr_pc === cached_pc) {
-//      io.pred_addr := cached_addr
-//      io.pred_made := true.B
-//    } otherwise {
-//      io.pred_made := false.B
-//    }
-//
-//    /**
-//      * System 2 -- "clean up"
-//      * After a prediction was made, we need to ensure the prediction was accurate -- and act correspondingly.
-//      *   - If the prediction was correct, then nothing needs to happen.
-//      *   - If the prediction was incorrect, the system will need to cancel the computation.
-//      *   - If the branch was taken but the address was not in the table, then the table needs to be updated.
-//      *   - If the branch was not taken and the address was not in the table, then nothing needs to occur.
-//      */
-//    when (io.br_addr === cached_addr) {
-//      // If the branch address is the same as the cached address, the
-//      // prediction was correct if the branch was taken. Otherwise, it was incorrect.
-//      io.incorrect_pred := !io.br_taken
-//    } otherwise {
-//      when (io.br_taken) {
-//        cached_pc :=
-//      }
-//    }
-//
-//  } otherwise {
-//    io.incorrect_pred := false.B
-//    io.pred_made := false.B
-//  }
-//
-//
-//  when (check_and_update) {
-//    when (prev_pred_pc === cached_pc) {
-//      when (io.br_taken) {  // When the prediction was correct
-//        io.incorrect_pred := false.B
-//      } otherwise {
-//        // If the prediction was incorrect, cancel the computation.
-//        io.incorrect_pred := true.B
-//      }
-//    } otherwise {
-//      when (io.br_taken) {
-//        // If the branch was not in the table & it was taken, update the table. Note: no prediction was made.
-//        cached_pc := prev_pred_pc
-//        cached_addr := io.br_addr
-//        io.incorrect_pred := false.B
-//      } otherwise {
-//        // Do Nothing
-//        io.incorrect_pred := false.B
-//      }
-//    }
-//  } otherwise {
-//    // If no need to check and update, ensure that all outputs reflect that.
-//    io.incorrect_pred := false.B
-//  }
+  // Prediction address is always the cached address.
+  io.pred_addr := cached_addr_read
 
 }
 
@@ -308,3 +256,68 @@ class BrPredictorStatic(val xlen: Int) extends BrPredictor2 {
 ////  }
 //
 //}
+
+// All from design 2.0 (Jan 4)
+//
+//  when (is_br_inst) {
+//
+//    /**
+//      * System 1 -- "Making the prediction"
+//      *  - If we have a branch instruction & the current PC is in the table,
+//      *      then make the prediction! (set the prediction address & prediction flag)
+//      *  - If the current PC is not in the table, ensure the prediction flag is false.
+//      */
+//    when (io.curr_pc === cached_pc) {
+//      io.pred_addr := cached_addr
+//      io.pred_made := true.B
+//    } otherwise {
+//      io.pred_made := false.B
+//    }
+//
+//    /**
+//      * System 2 -- "clean up"
+//      * After a prediction was made, we need to ensure the prediction was accurate -- and act correspondingly.
+//      *   - If the prediction was correct, then nothing needs to happen.
+//      *   - If the prediction was incorrect, the system will need to cancel the computation.
+//      *   - If the branch was taken but the address was not in the table, then the table needs to be updated.
+//      *   - If the branch was not taken and the address was not in the table, then nothing needs to occur.
+//      */
+//    when (io.br_addr === cached_addr) {
+//      // If the branch address is the same as the cached address, the
+//      // prediction was correct if the branch was taken. Otherwise, it was incorrect.
+//      io.incorrect_pred := !io.br_taken
+//    } otherwise {
+//      when (io.br_taken) {
+//        cached_pc :=
+//      }
+//    }
+//
+//  } otherwise {
+//    io.incorrect_pred := false.B
+//    io.pred_made := false.B
+//  }
+//
+//
+//  when (check_and_update) {
+//    when (prev_pred_pc === cached_pc) {
+//      when (io.br_taken) {  // When the prediction was correct
+//        io.incorrect_pred := false.B
+//      } otherwise {
+//        // If the prediction was incorrect, cancel the computation.
+//        io.incorrect_pred := true.B
+//      }
+//    } otherwise {
+//      when (io.br_taken) {
+//        // If the branch was not in the table & it was taken, update the table. Note: no prediction was made.
+//        cached_pc := prev_pred_pc
+//        cached_addr := io.br_addr
+//        io.incorrect_pred := false.B
+//      } otherwise {
+//        // Do Nothing
+//        io.incorrect_pred := false.B
+//      }
+//    }
+//  } otherwise {
+//    // If no need to check and update, ensure that all outputs reflect that.
+//    io.incorrect_pred := false.B
+//  }
