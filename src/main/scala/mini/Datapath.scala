@@ -37,6 +37,7 @@ class Datapath(val conf: CoreConfig) extends Module {
   val alu = Module(conf.makeAlu(conf.xlen))
   val immGen = Module(conf.makeImmGen(conf.xlen))
   val brCond = Module(conf.makeBrCond(conf.xlen))
+  val brCounter = Module(conf.makeBrCounter(conf.xlen))
 
   import Control._
 
@@ -134,6 +135,11 @@ class Datapath(val conf: CoreConfig) extends Module {
   brCond.io.rs1 := rs1
   brCond.io.rs2 := rs2
   brCond.io.br_type := io.ctrl.br_type
+
+  // Branch Counter
+  brCounter.io.br_type := io.ctrl.br_type
+  brCounter.io.br_taken := brCond.io.taken
+  brCounter.io.br_pc := fe_reg.pc
 
   // D$ access
   val daddr = Mux(stall, ew_reg.alu, alu.io.sum) >> 2.U << 2.U
