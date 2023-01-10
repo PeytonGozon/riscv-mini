@@ -1,8 +1,103 @@
 package mini
 
 import chisel3._
-import chisel3.util.MuxCase
 import mini.Control._
+
+class BrPredictorIO(xlen: Int) extends Bundle {
+
+  // Inputs [FETCH]
+  var curr_pc: UInt = Input(UInt(xlen.W))
+
+  // Inputs [Execute]
+  var br_type: UInt = Input(UInt(3.W))     // The same as in BrCond
+  var br_taken: Bool = Input(Bool())       // Whether the branch was taken or not.
+  var br_addr: UInt = Input(UInt(xlen.W))  // The addressed branched to (if the branch is taken).
+
+  // Outputs
+  var pred_addr: UInt = Output(UInt(xlen.W))  // The address predicted
+  var pred_made: Bool = Output(Bool())        // Whether a prediction was made or not
+  var pred_wrong_addr: Bool = Output(Bool())  // Whether the predicted address was correct or incorrect.
+  var pred_incorrect: Bool = Output(Bool())   // Whether the prediction to take the branch was correct or incorrect.
+}
+
+trait BrPredictor extends Module {
+  def xlen: Int
+  val io: BrPredictorIO
+}
+
+class BrPredictorOneEntry(val xlen: Int) extends BrPredictor {
+  val io: BrPredictorIO = IO(new BrPredictorIO(xlen))
+
+  // The branch prediction table
+  val cached_pc_write: UInt = RegInit(0.U(xlen.W))
+  val cached_pc_read: UInt = RegNext(cached_pc_write)
+  val cached_addr_write: UInt = RegInit(0.U(xlen.W))
+  val cached_addr_read: UInt = RegNext(cached_addr_write)
+
+  val hasUpdatedTableOnce: Bool = RegInit(false.B)
+
+  // Whether the last instruction was a branch [EXECUTE]
+  val was_br_inst: Bool = io.br_type =/= BR_XXX
+
+  // The value of the PC in the execute stage.
+  // this is a delayed value of curr_pc by one clock tick to be used to update the internals.
+  val last_pc: UInt = RegNext(io.curr_pc)
+
+  /**
+    * The Prediction
+    * Note: pred_addr will need to change when moving to a table.
+    */
+  io.pred_made := io.curr_pc === cached_pc_read && hasUpdatedTableOnce  // TODO: need a way to ensure that this won't occur on cycle 1.
+  io.pred_addr := cached_addr_read
+
+  /**
+    * Update the table (delayed by 1 clock tick from the prediction)
+    */
+  when (was_br_inst) {
+    // Whether the last instruction is in the table or not.
+    when (last_pc === cached_pc_read) {
+
+      when (io.br_taken) {
+
+        // We always predict that the branch is taken, so if the branch is taken, then the prediction was "correct"
+        // (as in, we predicted the branch was taken, and it was taken).
+        // The address predicted *could be wrong* however.
+        io.pred_incorrect := false.B
+        io.pred_wrong_addr := io.br_addr === cached_addr_read
+
+        // Update the cached address when the predicted address was incorrect.
+        when (io.br_addr =/= cached_addr_read) {
+          cached_addr_write := io.br_addr
+        }
+
+      } otherwise {
+        io.pred_incorrect := true.B
+        io.pred_wrong_addr := false.B
+      }
+
+    } otherwise {
+      io.pred_incorrect := false.B
+      io.pred_wrong_addr := false.B
+
+      when (io.br_taken) {
+        // Replacement Policy
+        cached_pc_write := last_pc
+        cached_addr_write := io.br_addr
+
+        hasUpdatedTableOnce := true.B
+      } otherwise {
+        // Do nothing -- didn't predict on the instruction & the instruction wasn't taken.
+      }
+    }
+
+  } otherwise {
+    io.pred_incorrect := false.B
+    io.pred_wrong_addr := false.B
+  }
+
+}
+
+
 
  class BrPredictor2IO(xlen: Int) extends Bundle {
 

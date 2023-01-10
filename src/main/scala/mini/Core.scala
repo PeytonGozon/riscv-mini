@@ -10,7 +10,7 @@ case class CoreConfig(
   makeAlu:    Int => Alu = new AluSimple(_),
   makeBrCond: Int => BrCond = new BrCondSimple(_),
   makeImmGen: Int => ImmGen = new ImmGenWire(_),
-  makeBrPredictor: Int => BrPredictor2 = new BrPredictorStatic(_))
+  makeBrPredictor: Int => BrPredictor = new BrPredictorOneEntry(_))
 
 class HostIO(xlen: Int) extends Bundle {
   val fromhost = Flipped(Valid(UInt(xlen.W)))
