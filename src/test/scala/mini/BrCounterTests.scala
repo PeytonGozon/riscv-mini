@@ -25,8 +25,8 @@ class BrCounterOneEntryTest extends BasicTester with TestUtils {
   val (cntr, done) = Counter(true.B, insts.size)
 
   // ===== OUTPUT CHECK HERE =====
-  val expected_cached_pc = VecInit((Seq(0) concat Seq.fill(insts.size - 1)(address)).map(_.U(xlen)))
-  val expected_times_taken = VecInit(Seq(0, 1, 0, -1).map(_.S))
+//  val expected_cached_pc = VecInit((Seq(0) concat Seq.fill(insts.size - 1)(address)).map(_.U(xlen)))
+//  val expected_times_taken = VecInit(Seq(0, 1, 0, -1).map(_.S))
   // ===== OUTPUT STOP  HERE =====
 
   // Connect Control
@@ -40,17 +40,11 @@ class BrCounterOneEntryTest extends BasicTester with TestUtils {
 
   when (done) { stop() }
 
-//   Assert that it works as anticipated.
-//  assert(dut.cached_pc === expected_cached_pc(cntr))
-//  assert(dut.times_taken === expected_times_taken(cntr))
-
   printf(
     "[BrCounter Test] Counter: %d, BrType: %d, BrTaken: %d\n",
     cntr,
     dut.io.br_type,
-    dut.io.br_taken,
-//    dut.cached_pc,
-//    dut.times_taken
+    dut.io.br_taken
   )
 
 }

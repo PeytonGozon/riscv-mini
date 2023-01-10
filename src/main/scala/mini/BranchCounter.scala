@@ -44,3 +44,9 @@ class BranchCounterOneEntry(val xlen: Int) extends BranchCounter {
     printf("[BrCounter] Non-branch instruction\n")
   }
 }
+
+class BranchCounterTable(val xlen: Int) extends BranchCounter {
+  val io: BranchCounterIO = IO(new BranchCounterIO(xlen))
+
+
+}
