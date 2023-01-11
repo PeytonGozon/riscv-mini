@@ -45,15 +45,15 @@ case object ISATests extends TestConfig {
     "sub",
     "xor",
     "xori"
-  ).map(t => s"rv32ui-p-${t}") // ++
-//    List(
-//      "sbreak",
-//      "scall",
-//      "illegal",
-//      "ma_fetch",
-//      "ma_addr",
-//      "csr" //, TODO: "timer"
-//    ).map(t => s"rv32mi-p-$t")
+  ).map(t => s"rv32ui-p-${t}") ++
+    List(
+      "sbreak",
+      "scall",
+      "illegal",
+      "ma_fetch",
+      "ma_addr",
+      "csr" //, TODO: "timer"
+    ).map(t => s"rv32mi-p-$t")
   val maxcycles = 15000
   val namePrefix = "ISATests"
 }

@@ -81,5 +81,5 @@ abstract class CoreTests(cfg: TestConfig, useVerilator: Boolean = true)
   }
 }
 
-class CoreISATests extends CoreTests(ISATests)
+class CoreISATests extends CoreTests(ISATests, true)
 class CoreBmarkTests extends CoreTests(BmarkTests, true)

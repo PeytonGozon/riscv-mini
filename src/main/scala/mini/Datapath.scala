@@ -116,6 +116,7 @@ class Datapath(val conf: CoreConfig) extends Module {
   // Cache whether we just made a prediction or not -- delayed by one clock tick, so timing works out with the exceptional mux
   // If no prediction was made, but the branch was taken, then a NOP needs to be bubbled through.
   val pred_made_last = RegNext(brPredictor.io.pred_made)
+  val pred_addr_last = RegNext(brPredictor.io.pred_addr)
 
   val inst =
     MuxCase(
@@ -143,7 +144,8 @@ class Datapath(val conf: CoreConfig) extends Module {
 
   // Pipelining
   when(!stall) {
-    fe_reg.pc := pc
+    // When a prediction was made & wasn't invalidated, update the PC in the reg.
+    fe_reg.pc := Mux(!(brPredictor.io.pred_incorrect || brPredictor.io.pred_wrong_addr) && pred_made_last, pred_addr_last, pc)  // pc
     fe_reg.inst := inst
   }
 
